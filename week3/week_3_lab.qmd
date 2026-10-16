@@ -81,3 +81,15 @@ goleta_PAs_within <- st_within(sb_protected_areas, goleta_buffer_15km)
 goleta_PAs_intersect <- st_intersects(sb_protected_areas, goleta_buffer_15km)
 goleta_PAs_intersection <- st_intersection(sb_protected_areas, goleta_buffer_15km)
 ```
+
+```{r}
+dangermond <- sb_protected_areas |> 
+    filter(UNIT_NAME == "Jack and Laura Dangermond Preserve")
+danger_dist <- st_distance(
+    goleta, dangermond) 
+```
+
+```{r}
+dangermond_centroid <- st_centroid(dangermond)
+goleta_centroid <- st_centroid(goleta)
+```
