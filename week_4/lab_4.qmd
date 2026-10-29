@@ -1,0 +1,160 @@
+```{r}
+library(tidyverse)
+library(spDataLarge)
+library(sf)
+library(stars)
+library(terra)
+```
+
+```{r}
+dem <- terra::rast(system.file("raster/dem.tif", package = "spDataLarge"))
+landsat <- terra::rast(system.file("raster/landsat.tif", package = "spDataLarge"))
+srtm <- terra::rast(system.file("raster/srtm.tif", package = "spDataLarge"))
+```
+
+```{r}
+# Use terra:: so R doesn't fall back to base hist()/boxplot(), which can't read a SpatRaster
+terra::hist(dem,
+            main = "Digital Elevation Model Distribution",
+            xlab = "Value")
+#stars
+#dem_values <- as.vector(dem[[1]])
+# hist(dem_values, 
+#main = 'digital elevation model distribution, xlab = 'value)
+
+terra::boxplot(dem,
+               main = "Digital Elevation Model Distribution",
+               ylab = "Value")
+
+```
+
+
+```{r}
+# Define a reclassification matrix
+rcl <- matrix(c(-Inf, 300, 0, # values -Inf to 300 = 0
+                300, 500, 1,  # values 300 to 500 = 1
+                500, Inf, 2), # values 500 to Inf = 2
+              ncol = 3, byrow = TRUE)
+
+# Apply the matrix to reclassify the raster, making all cells 0 or 1 or 2
+dem_rcl <- terra::classify(dem, rcl = rcl)
+
+# stars
+# dem_rcl <- cut(dem, breaks = c(-Inf, 300, 500, Inf), labels = c('low', 'medium', 'high'))
+
+# Assign labels to the numerical categories
+
+# Old version: works with newer terra, but older versions (e.g., 1.7) error with
+# "[set.cats] the first column of 'value' must be numeric" because they don't accept a tibble
+# levels(dem_rcl) <- tibble::tibble(id = 0:2,
+#                                   cats = c("low", "medium", "high"))
+
+# New version: a plain data.frame works with both older and newer terra
+levels(dem_rcl) <- data.frame(id = 0:2,
+                              cats = c("low", "medium", "high"))
+
+# Calculate mean elevation for each category using original DEM values
+elevation_mean <- terra::zonal(dem, dem_rcl, fun = "mean")
+elevation_mean
+```
+
+```{r}
+scale_factor <- 0.0000275
+offset <- 0.2
+
+scale_function <- function(x) {
+  x * scale_factor + offset
+}
+
+landsat_scaled <- terra::app(landsat, fun = scale_function)
+```
+
+```{r}
+ndwi_fun <- function(green, nir){
+    (green - nir)/(green + nir)
+}
+
+ndvi_fun <- function(nir, red){
+  (nir - red)/(nir + red)
+}
+
+ndwi_rast <- terra::lapp(landsat_scaled[[c(2, 4)]],
+                         fun = ndwi_fun)
+
+ndvi_rast <- terra::lapp(landsat_scaled[[c(4, 3)]],
+                         fun = ndvi_fun)
+
+plot(ndwi_rast,
+     main = "Zion National Park NDWI")
+
+plot(ndvi_rast, 
+    main = 'Zion National Park NDVI')
+```
+
+```{r}
+combined <- c(ndwi_rast, ndvi_rast)
+plot(combined, main = c("NDVI", "NDWI"))
+
+terra::layerCor(combined, fun = cor)
+```
+
+```{r}
+plot(srtm)
+```
+
+```{r}
+rast_template <- terra::rast(terra::ext(srtm), res = 0.01) # Create empty template
+srtm_resampl1 <- terra::resample(srtm, y = rast_template, method = "bilinear")
+srtm_resampl2 <- terra::resample(srtm, y = rast_template, method = "near")
+srtm_resampl3 <- terra::resample(srtm, y = rast_template, method = "cubic")
+srtm_resampl4 <- terra::resample(srtm, y = rast_template, method = "cubicspline")
+srtm_resampl5 <- terra::resample(srtm, y = rast_template, method = "lanczos")
+
+srtm_resampl_all <- c(srtm_resampl1, srtm_resampl2, srtm_resampl3, srtm_resampl4, srtm_resampl5)
+labs <- c("Bilinear", "Near", "Cubic", "Cubic Spline", "Lanczos")
+
+plot(srtm_resampl_all, main = labs)
+```
+
+
+
+
+
+similiar plots, but with the stars package
+```{r}
+#stars
+dem_stars <- stars::read_stars(system.file("raster/dem.tif", package = "spDataLarge"))
+landsat_stars <- stars::read_stars(system.file("raster/landsat.tif", package = "spDataLarge"))
+srtm_stars <- stars::read_stars(system.file("raster/srtm.tif", package = "spDataLarge"))
+
+dem_values_stars <- as.vector(dem[[1]])
+hist(dem_values_stars, 
+main = 'digital elevation model distribution', xlab = 'value')
+
+boxplot(dem_values_stars, ylab = 'value')
+# Calculate mean elevation for each category using original DEM values
+# Reclassify by cutting values into intervals, returning a factor raster
+
+dem_rcl_stars <- cut(dem_stars,
+               breaks = c(-Inf, 300, 500, Inf), # -Inf to 300, 300 to 500, 500 to Inf
+               labels = c("low", "medium", "high"))
+
+plot(dem_rcl_stars, main = "Reclassified elevation")
+
+elevation_mean_stars <- tibble(elevation = as.vector(dem_stars[[1]]),
+                         cats = factor(as.vector(dem_rcl_stars[[1]]), levels = levels(dem_rcl_stars[[1]]))) |> 
+  group_by(cats) |> 
+  summarise(mean_elevation = mean(elevation, na.rm = TRUE))
+elevation_mean_stars
+```
+
+```{r}
+class(srtm_stars)
+```
+
+```{r}
+# Polygonize the reclassified raster, merging cells of the same class
+dem_polys <- sf::st_as_sf(dem_rcl_stars, merge = TRUE) %>%
+  group_by(dem.tif) %>%
+  summarise() # Dissolve into one (multi)polygon per class
+```
