@@ -226,7 +226,9 @@ plot(landsat, col = gray.colors(256))
 # Explore the bands
 
 - In which bands does water appear darkest? Why?
+      SWIR1, SWIR2 
 - In which band does vegetation appear brightest? Why?
+      NIR, SWIR1, SWIR2, reflect vegetation at the highest levels
 :::
 
 
